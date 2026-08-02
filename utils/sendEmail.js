@@ -1,19 +1,12 @@
-import dotenv from "dotenv";
 import nodemailer from "nodemailer";
 
-dotenv.config();
-
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
+  service: "gmail",
 
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-
-  requireTLS: true,
 });
 
 export const sendVerificationEmail = async (email, otp) => {
@@ -31,14 +24,9 @@ export const sendVerificationEmail = async (email, otp) => {
         border: 1px solid #ddd;
         border-radius: 10px;
       ">
+        <h2 style="text-align:center;">APNA GHAR</h2>
 
-        <h2 style="text-align:center;">
-          APNA GHAR
-        </h2>
-
-        <p>
-          Your email verification code is:
-        </p>
+        <p>Your email verification code is:</p>
 
         <h1 style="
           text-align:center;
@@ -47,14 +35,9 @@ export const sendVerificationEmail = async (email, otp) => {
           ${otp}
         </h1>
 
-        <p>
-          This code will expire in <b>10 minutes</b>.
-        </p>
+        <p>This code will expire in <b>10 minutes</b>.</p>
 
-        <p>
-          If you did not request this code, you can ignore this email.
-        </p>
-
+        <p>If you did not request this code, you can ignore this email.</p>
       </div>
     `,
   });
