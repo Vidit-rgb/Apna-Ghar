@@ -135,6 +135,8 @@ export const registerUser = async (req, res) => {
       role: "user",
     });
 
+    sendVerificationEmail(email, otp);
+
   } catch (error) {
     console.log(error);
 

@@ -129,6 +129,8 @@ export const registerOwner = async (req, res) => {
       role: "owner",
     });
 
+    sendVerificationEmail(email, otp);
+
   } catch (error) {
     console.log(error);
 
