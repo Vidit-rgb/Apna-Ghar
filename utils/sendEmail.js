@@ -24,6 +24,7 @@ export const sendVerificationEmail = async (email, otp) => {
         border: 1px solid #ddd;
         border-radius: 10px;
       ">
+
         <h2 style="text-align:center;">APNA GHAR</h2>
 
         <p>Your email verification code is:</p>
@@ -35,9 +36,14 @@ export const sendVerificationEmail = async (email, otp) => {
           ${otp}
         </h1>
 
-        <p>This code will expire in <b>10 minutes</b>.</p>
+        <p>
+          This code will expire in <b>10 minutes</b>.
+        </p>
 
-        <p>If you did not request this code, you can ignore this email.</p>
+        <p>
+          If you did not request this code, you can ignore this email.
+        </p>
+
       </div>
     `,
   });
