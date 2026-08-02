@@ -120,7 +120,7 @@ export const registerOwner = async (req, res) => {
     });
 
     // Send OTP
-    await sendVerificationEmail(email, otp);
+    //await sendVerificationEmail(email, otp);
 
     return res.status(201).json({
       success: true,
