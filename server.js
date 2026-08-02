@@ -21,12 +21,7 @@ const app = express();
 connectDB();
 
 // Middleware
-app.use(
-  cors({
-    origin: "https://apnaghar-frontend-nine.vercel.app",
-    credentials: true,
-  })
-);
+app.use(cors());
 app.use(express.json());
 
 app.use("/uploads", express.static("uploads"));
