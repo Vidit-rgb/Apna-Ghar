@@ -1,20 +1,11 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  connectionTimeout: 10000, // 10 sec me fail ho jaye, hang na ho
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendVerificationEmail = async (email, otp) => {
   try {
-    await transporter.sendMail({
-      from: `"Apna Ghar" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+      from: "Apna Ghar <onboarding@resend.dev>", // baad me apna verified domain
       to: email,
       subject: "Apna Ghar - Email Verification Code",
       html: `
@@ -39,6 +30,5 @@ export const sendVerificationEmail = async (email, otp) => {
     console.log("Verification email sent to", email);
   } catch (err) {
     console.error("Email sending failed:", err.message);
-    // yahan error throw mat karo — registration block nahi honi chahiye
   }
 };
