@@ -22,7 +22,6 @@ const isValidMobile = (mobile) => {
 
 export const registerOwner = async (req, res) => {
   try {
-
     let {
       username,
       email,
@@ -72,7 +71,7 @@ export const registerOwner = async (req, res) => {
       });
     }
 
-    // IMPORTANT: Check User DB also
+    // Check User email
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
@@ -82,7 +81,7 @@ export const registerOwner = async (req, res) => {
       });
     }
 
-    // Username check
+    // Check Owner username
     const existingUsername = await Owner.findOne({
       username,
     });
@@ -94,37 +93,36 @@ export const registerOwner = async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(
-      password,
-      10
-    );
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const owner = await Owner.create({
-      username,
-      email,
-      mobile,
-      password: hashedPassword,
-      emailVerified: false,
-    });
-
+    // Generate OTP
     const otp = generateOTP();
 
+    // Delete old pending owner registration
     await EmailVerification.deleteMany({
-      accountId: owner._id,
+      email,
       role: "owner",
     });
 
+    // Store owner registration temporarily
     await EmailVerification.create({
-      accountId: owner._id,
       email,
       role: "owner",
       otp,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+
+      registrationData: {
+        username,
+        mobile,
+        password: hashedPassword,
+      },
     });
 
+    // Send OTP
     await sendVerificationEmail(email, otp);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "OTP sent to your email",
       email,
@@ -132,10 +130,9 @@ export const registerOwner = async (req, res) => {
     });
 
   } catch (error) {
-
     console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -147,34 +144,22 @@ export const registerOwner = async (req, res) => {
 
 export const verifyOwnerEmail = async (req, res) => {
   try {
-
     const {
       email,
       otp,
     } = req.body;
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = email?.trim().toLowerCase();
 
-    const owner = await Owner.findOne({
-      email: normalizedEmail,
-    });
-
-    if (!owner) {
-      return res.status(404).json({
-        success: false,
-        message: "Owner not found",
-      });
-    }
-
-    if (owner.emailVerified) {
+    if (!normalizedEmail || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Email already verified",
+        message: "Email and OTP are required",
       });
     }
 
+    // Find pending registration
     const verification = await EmailVerification.findOne({
-      accountId: owner._id,
       email: normalizedEmail,
       role: "owner",
     });
@@ -182,22 +167,23 @@ export const verifyOwnerEmail = async (req, res) => {
     if (!verification) {
       return res.status(400).json({
         success: false,
-        message: "OTP not found. Please resend OTP",
+        message: "OTP not found. Please register again",
       });
     }
 
+    // Check OTP expiry
     if (verification.expiresAt < new Date()) {
-
       await EmailVerification.deleteOne({
         _id: verification._id,
       });
 
       return res.status(400).json({
         success: false,
-        message: "OTP expired. Please resend OTP",
+        message: "OTP expired. Please register again",
       });
     }
 
+    // Check OTP
     if (verification.otp !== otp) {
       return res.status(400).json({
         success: false,
@@ -205,22 +191,53 @@ export const verifyOwnerEmail = async (req, res) => {
       });
     }
 
-    owner.emailVerified = true;
+    // Get temporary registration data
+    const {
+      username,
+      mobile,
+      password,
+    } = verification.registrationData;
 
-    await owner.save();
+    // Double-check email
+    const existingOwner = await Owner.findOne({
+      email: normalizedEmail,
+    });
 
+    if (existingOwner) {
+      await EmailVerification.deleteOne({
+        _id: verification._id,
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered",
+      });
+    }
+
+    // Create Owner ONLY AFTER OTP verification
+    const owner = await Owner.create({
+      username,
+      email: normalizedEmail,
+      mobile,
+      password,
+      emailVerified: true,
+    });
+
+    // Delete OTP record
     await EmailVerification.deleteOne({
       _id: verification._id,
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Email verified successfully",
+      message: "Email verified and owner account created successfully",
+      ownerId: owner._id,
     });
 
   } catch (error) {
+    console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -232,50 +249,47 @@ export const verifyOwnerEmail = async (req, res) => {
 
 export const resendOwnerOTP = async (req, res) => {
   try {
-
     const email = req.body.email?.trim().toLowerCase();
 
-    const owner = await Owner.findOne({ email });
-
-    if (!owner) {
-      return res.status(404).json({
+    if (!email) {
+      return res.status(400).json({
         success: false,
-        message: "Owner not found",
+        message: "Email is required",
       });
     }
 
-    if (owner.emailVerified) {
-      return res.status(400).json({
+    const verification = await EmailVerification.findOne({
+      email,
+      role: "owner",
+    });
+
+    if (!verification) {
+      return res.status(404).json({
         success: false,
-        message: "Email already verified",
+        message: "Registration not found. Please register again",
       });
     }
 
     const otp = generateOTP();
 
-    await EmailVerification.deleteMany({
-      accountId: owner._id,
-      role: "owner",
-    });
+    verification.otp = otp;
+    verification.expiresAt = new Date(
+      Date.now() + 10 * 60 * 1000
+    );
 
-    await EmailVerification.create({
-      accountId: owner._id,
-      email,
-      role: "owner",
-      otp,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    });
+    await verification.save();
 
     await sendVerificationEmail(email, otp);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "New OTP sent",
     });
 
   } catch (error) {
+    console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -287,7 +301,6 @@ export const resendOwnerOTP = async (req, res) => {
 
 export const loginOwner = async (req, res) => {
   try {
-
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
 
@@ -341,7 +354,7 @@ export const loginOwner = async (req, res) => {
 
     delete safeOwner.password;
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Owner Login Successful",
       token,
@@ -349,8 +362,9 @@ export const loginOwner = async (req, res) => {
     });
 
   } catch (error) {
+    console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -362,7 +376,6 @@ export const loginOwner = async (req, res) => {
 
 export const changePassword = async (req, res) => {
   try {
-
     const {
       ownerId,
       oldPassword,
@@ -404,14 +417,13 @@ export const changePassword = async (req, res) => {
 
     await owner.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Password Changed Successfully",
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -423,7 +435,6 @@ export const changePassword = async (req, res) => {
 
 export const getOwnerProfile = async (req, res) => {
   try {
-
     const { id } = req.params;
 
     const owner = await Owner.findById(id)
@@ -436,14 +447,13 @@ export const getOwnerProfile = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       owner,
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -455,7 +465,6 @@ export const getOwnerProfile = async (req, res) => {
 
 export const updateOwnerProfile = async (req, res) => {
   try {
-
     const { id } = req.params;
 
     const {
@@ -501,15 +510,14 @@ export const updateOwnerProfile = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Profile Updated Successfully",
       owner,
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });

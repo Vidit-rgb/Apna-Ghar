@@ -4,13 +4,14 @@ const emailVerificationSchema = new mongoose.Schema(
   {
     accountId: {
       type: mongoose.Schema.Types.ObjectId,
-      required: true,
+      required: false,
     },
 
     email: {
       type: String,
       required: true,
       lowercase: true,
+      trim: true,
     },
 
     role: {
@@ -27,6 +28,14 @@ const emailVerificationSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: true,
+    },
+
+    // Registration data temporarily stored until OTP verification
+    registrationData: {
+      username: String,
+      mobile: String,
+      gender: String,
+      password: String,
     },
   },
   {

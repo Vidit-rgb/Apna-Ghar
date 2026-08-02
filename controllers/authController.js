@@ -22,7 +22,6 @@ const isValidMobile = (mobile) => {
 
 export const registerUser = async (req, res) => {
   try {
-
     let {
       username,
       email,
@@ -69,7 +68,7 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Check USER email
+    // Check User email
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
@@ -79,7 +78,7 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Check OWNER email
+    // Check Owner email
     const existingOwner = await Owner.findOne({ email });
 
     if (existingOwner) {
@@ -89,7 +88,7 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Username check
+    // Check username
     const existingUsername = await User.findOne({ username });
 
     if (existingUsername) {
@@ -99,35 +98,37 @@ export const registerUser = async (req, res) => {
       });
     }
 
+    // Hash password before temporarily storing it
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await User.create({
-      username,
-      email,
-      mobile,
-      gender,
-      password: hashedPassword,
-      emailVerified: false,
-    });
-
+    // Generate OTP
     const otp = generateOTP();
 
+    // Delete old pending verification
     await EmailVerification.deleteMany({
-      accountId: user._id,
+      email,
       role: "user",
     });
 
+    // Store registration data temporarily
     await EmailVerification.create({
-      accountId: user._id,
       email,
       role: "user",
       otp,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+
+      registrationData: {
+        username,
+        mobile,
+        gender,
+        password: hashedPassword,
+      },
     });
 
+    // Send OTP
     await sendVerificationEmail(email, otp);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "OTP sent to your email",
       email,
@@ -135,10 +136,9 @@ export const registerUser = async (req, res) => {
     });
 
   } catch (error) {
-
     console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -150,31 +150,19 @@ export const registerUser = async (req, res) => {
 
 export const verifyUserEmail = async (req, res) => {
   try {
-
     const { email, otp } = req.body;
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = email?.trim().toLowerCase();
 
-    const user = await User.findOne({
-      email: normalizedEmail,
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (user.emailVerified) {
+    if (!normalizedEmail || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Email already verified",
+        message: "Email and OTP are required",
       });
     }
 
+    // Find pending registration
     const verification = await EmailVerification.findOne({
-      accountId: user._id,
       email: normalizedEmail,
       role: "user",
     });
@@ -182,22 +170,23 @@ export const verifyUserEmail = async (req, res) => {
     if (!verification) {
       return res.status(400).json({
         success: false,
-        message: "OTP not found. Please resend OTP",
+        message: "OTP not found. Please register again",
       });
     }
 
+    // Check expiry
     if (verification.expiresAt < new Date()) {
-
       await EmailVerification.deleteOne({
         _id: verification._id,
       });
 
       return res.status(400).json({
         success: false,
-        message: "OTP expired. Please resend OTP",
+        message: "OTP expired. Please register again",
       });
     }
 
+    // Check OTP
     if (verification.otp !== otp) {
       return res.status(400).json({
         success: false,
@@ -205,22 +194,55 @@ export const verifyUserEmail = async (req, res) => {
       });
     }
 
-    user.emailVerified = true;
+    // Get temporary registration data
+    const {
+      username,
+      mobile,
+      gender,
+      password,
+    } = verification.registrationData;
 
-    await user.save();
+    // Double-check email
+    const existingUser = await User.findOne({
+      email: normalizedEmail,
+    });
 
+    if (existingUser) {
+      await EmailVerification.deleteOne({
+        _id: verification._id,
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered",
+      });
+    }
+
+    // Create user ONLY AFTER OTP verification
+    const user = await User.create({
+      username,
+      email: normalizedEmail,
+      mobile,
+      gender,
+      password,
+      emailVerified: true,
+    });
+
+    // Delete OTP record
     await EmailVerification.deleteOne({
       _id: verification._id,
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Email verified successfully",
+      message: "Email verified and account created successfully",
+      userId: user._id,
     });
 
   } catch (error) {
+    console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -232,50 +254,47 @@ export const verifyUserEmail = async (req, res) => {
 
 export const resendUserOTP = async (req, res) => {
   try {
-
     const email = req.body.email?.trim().toLowerCase();
 
-    const user = await User.findOne({ email });
-
-    if (!user) {
-      return res.status(404).json({
+    if (!email) {
+      return res.status(400).json({
         success: false,
-        message: "User not found",
+        message: "Email is required",
       });
     }
 
-    if (user.emailVerified) {
-      return res.status(400).json({
+    const verification = await EmailVerification.findOne({
+      email,
+      role: "user",
+    });
+
+    if (!verification) {
+      return res.status(404).json({
         success: false,
-        message: "Email already verified",
+        message: "Registration not found. Please register again",
       });
     }
 
     const otp = generateOTP();
 
-    await EmailVerification.deleteMany({
-      accountId: user._id,
-      role: "user",
-    });
+    verification.otp = otp;
+    verification.expiresAt = new Date(
+      Date.now() + 10 * 60 * 1000
+    );
 
-    await EmailVerification.create({
-      accountId: user._id,
-      email,
-      role: "user",
-      otp,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    });
+    await verification.save();
 
     await sendVerificationEmail(email, otp);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "New OTP sent",
     });
 
   } catch (error) {
+    console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -287,7 +306,6 @@ export const resendUserOTP = async (req, res) => {
 
 export const loginUser = async (req, res) => {
   try {
-
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
 
@@ -341,7 +359,7 @@ export const loginUser = async (req, res) => {
 
     delete safeUser.password;
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Login Successful",
       token,
@@ -349,8 +367,9 @@ export const loginUser = async (req, res) => {
     });
 
   } catch (error) {
+    console.log(error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -362,7 +381,6 @@ export const loginUser = async (req, res) => {
 
 export const getUserProfile = async (req, res) => {
   try {
-
     const { id } = req.params;
 
     const user = await User.findById(id).select("-password");
@@ -374,14 +392,13 @@ export const getUserProfile = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       user,
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -393,7 +410,6 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
   try {
-
     const { id } = req.params;
 
     const {
@@ -441,15 +457,14 @@ export const updateUserProfile = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Profile Updated Successfully",
       user,
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -461,9 +476,11 @@ export const updateUserProfile = async (req, res) => {
 
 export const changeUserPassword = async (req, res) => {
   try {
-
     const { id } = req.params;
-    const { currentPassword, newPassword } = req.body;
+    const {
+      currentPassword,
+      newPassword,
+    } = req.body;
 
     const user = await User.findById(id);
 
@@ -493,18 +510,20 @@ export const changeUserPassword = async (req, res) => {
       });
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
+    user.password = await bcrypt.hash(
+      newPassword,
+      10
+    );
 
     await user.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Password Changed Successfully",
     });
 
   } catch (error) {
-
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
